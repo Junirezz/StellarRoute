@@ -1,8 +1,8 @@
 #![cfg(test)]
 
 use crate::router::{StellarRoute, StellarRouteClient};
-use crate::types::{Asset, PoolType, Route, RouteHop, SwapParams};
-use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
+use crate::types::SwapParams;
+use soroban_sdk::{testutils::Address as _, Address};
 
 // Import test utilities from the test module
 use crate::test::{deploy_mock_pool, deploy_router, make_route, setup_env};
@@ -25,7 +25,7 @@ fn bench_initialize() {
 #[test]
 fn bench_register_pool() {
     let env = setup_env();
-    let (admin, _, client) = deploy_router(&env);
+    let (_admin, _, client) = deploy_router(&env);
     let pool = deploy_mock_pool(&env);
 
     env.mock_all_auths();
@@ -40,7 +40,7 @@ fn bench_register_pool() {
 #[test]
 fn bench_get_quote_1_hop() {
     let env = setup_env();
-    let (admin, _, client) = deploy_router(&env);
+    let (_admin, _, client) = deploy_router(&env);
     let pool = deploy_mock_pool(&env);
 
     env.mock_all_auths();
@@ -62,7 +62,7 @@ fn bench_get_quote_1_hop() {
 #[test]
 fn bench_get_quote_2_hops() {
     let env = setup_env();
-    let (admin, _, client) = deploy_router(&env);
+    let (_admin, _, client) = deploy_router(&env);
     let pool = deploy_mock_pool(&env);
 
     env.mock_all_auths();
@@ -84,7 +84,7 @@ fn bench_get_quote_2_hops() {
 #[test]
 fn bench_get_quote_4_hops() {
     let env = setup_env();
-    let (admin, _, client) = deploy_router(&env);
+    let (_admin, _, client) = deploy_router(&env);
     let pool = deploy_mock_pool(&env);
 
     env.mock_all_auths();
@@ -106,7 +106,7 @@ fn bench_get_quote_4_hops() {
 #[test]
 fn bench_execute_swap_1_hop() {
     let env = setup_env();
-    let (admin, _, client) = deploy_router(&env);
+    let (_admin, _, client) = deploy_router(&env);
     let pool = deploy_mock_pool(&env);
     let sender = Address::generate(&env);
 
@@ -139,7 +139,7 @@ fn bench_execute_swap_1_hop() {
 #[test]
 fn bench_execute_swap_4_hops() {
     let env = setup_env();
-    let (admin, _, client) = deploy_router(&env);
+    let (_admin, _, client) = deploy_router(&env);
     let pool = deploy_mock_pool(&env);
     let sender = Address::generate(&env);
 
@@ -195,7 +195,7 @@ fn bench_estimate_resources() {
 #[test]
 fn stress_test_max_complexity() {
     let env = setup_env();
-    let (admin, _, client) = deploy_router(&env);
+    let (_admin, _, client) = deploy_router(&env);
     let pool = deploy_mock_pool(&env);
     let sender = Address::generate(&env);
 
@@ -231,7 +231,7 @@ fn stress_test_max_complexity() {
 #[test]
 fn regression_test_gas_increase() {
     let env = setup_env();
-    let (admin, _, client) = deploy_router(&env);
+    let (_admin, _, client) = deploy_router(&env);
     let pool = deploy_mock_pool(&env);
 
     env.mock_all_auths();

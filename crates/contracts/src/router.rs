@@ -1,8 +1,8 @@
 use crate::errors::ContractError;
 use crate::events;
 use crate::storage::{
-    self, batch_check_pools, extend_instance_ttl, get_fee_rate, get_instance_config,
-    increment_nonce, transfer_asset, StorageKey,
+    self, batch_check_pools, extend_instance_ttl, get_fee_rate, increment_nonce, transfer_asset,
+    StorageKey,
 };
 use crate::storage::{
     INSTANCE_TTL_EXTEND_TO, INSTANCE_TTL_THRESHOLD, POOL_TTL_EXTEND_TO, POOL_TTL_THRESHOLD,
@@ -48,12 +48,12 @@ impl StellarRoute {
         fee_rate: u32,
         fee_to: Address,
         // ── Optional multi-sig bootstrap ─────────────────────────────────────
-        signers: Option<Vec<Address>>,
-        threshold: Option<u32>,
-        proposal_ttl: Option<u64>,
-        guardian: Option<Address>,
+        _signers: Option<Vec<Address>>,
+        _threshold: Option<u32>,
+        _proposal_ttl: Option<u64>,
+        _guardian: Option<Address>,
         // ── Optional initial WASM hash for version tracking ──────────────────
-        initial_wasm_hash: Option<BytesN<32>>,
+        _initial_wasm_hash: Option<BytesN<32>>,
     ) -> Result<(), ContractError> {
         if e.storage().instance().has(&StorageKey::Admin) {
             return Err(ContractError::AlreadyInitialized);
@@ -577,7 +577,7 @@ impl StellarRoute {
             return Err(ContractError::InvalidRoute);
         }
 
-        let num_hops = route.hops.len() as u32;
+        let num_hops = route.hops.len();
         if num_hops > MAX_HOPS {
             return Err(ContractError::InvalidRoute);
         }
@@ -921,18 +921,18 @@ impl StellarRoute {
         }
         // ──────────────────────────────────────────────────────────────────────
 
-        increment_nonce(&e, sender.clone());
-        storage::add_swap_volume(&e, params.amount_in);
+        increment_nonce(e, sender.clone());
+        storage::add_swap_volume(e, params.amount_in);
 
         // Extend TTLs for pools used in this route
         for i in 0..params.route.hops.len() {
             let hop = params.route.hops.get(i).unwrap();
-            storage::extend_pool_ttl(&e, &hop.pool);
+            storage::extend_pool_ttl(e, &hop.pool);
         }
-        extend_instance_ttl(&e);
+        extend_instance_ttl(e);
 
         // Check TTL health and emit warning if needed
-        Self::check_ttl_health(&e);
+        Self::check_ttl_health(e);
 
         // Emit compact event (use IDs instead of full structs where possible)
         events::swap_executed(

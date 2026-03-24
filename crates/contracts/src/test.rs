@@ -11,7 +11,7 @@
 
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
-    Address, Bytes, BytesN, Env, Symbol, Vec,
+    Address, BytesN, Env, Symbol, Vec,
 };
 
 use super::{
@@ -21,8 +21,7 @@ use super::{
         INSTANCE_TTL_EXTEND_TO, INSTANCE_TTL_THRESHOLD, POOL_TTL_EXTEND_TO, POOL_TTL_THRESHOLD,
     },
     types::{
-        Asset, FeeConfig, FeeRecipient, MevConfig, PoolType, ProposalAction, Route, RouteHop,
-        SwapParams,
+        Asset, FeeConfig, FeeRecipient, PoolType, ProposalAction, Route, RouteHop, SwapParams,
     },
 };
 
