@@ -5,7 +5,7 @@ use axum::{
     Json,
 };
 use sqlx::Row;
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 use tracing::debug;
 
 use crate::{
@@ -29,6 +29,7 @@ use crate::{
         ("base" = String, Path, description = "Base asset (e.g., 'native', 'USDC', or 'USDC:ISSUER')"),
         ("quote" = String, Path, description = "Quote asset (e.g., 'native', 'USDC', or 'USDC:ISSUER')"),
         ("amount" = Option<String>, Query, description = "Amount to trade (default: 1)"),
+        ("slippage_bps" = Option<u32>, Query, description = "Slippage tolerance in basis points (default: 50)"),
         ("quote_type" = Option<String>, Query, description = "Type of quote: 'sell' or 'buy' (default: sell)"),
     ),
     responses(
@@ -68,31 +69,44 @@ pub async fn get_quote(
         ));
     }
 
-    // Try to get from cache first
-    let amount_str = format!("{:.7}", amount);
-    if let Some(cache) = &state.cache {
-        if let Ok(mut cache) = cache.try_lock() {
-            if let Some(cached) = cache
-                .get::<QuoteResponse>(&cache::keys::quote(&base, &quote, &amount_str))
-                .await
-            {
-                debug!("Returning cached quote for {}/{}", base, quote);
-                return Ok(Json(cached));
-            }
-        }
+    let slippage_bps = params.slippage_bps.unwrap_or(50);
+    if slippage_bps > 10_000 {
+        return Err(ApiError::Validation(
+            "slippage_bps must be between 0 and 10000".to_string(),
+        ));
     }
-
-    // For now, implement simple direct path (SDEX only)
-    // TODO: Implement multi-hop routing in Phase 2
-    let (price, path) = find_best_price(&state, &base_asset, &quote_asset, amount).await?;
-
-    let total = amount * price;
-    let timestamp = chrono::Utc::now().timestamp();
 
     let quote_type = match params.quote_type {
         crate::models::request::QuoteType::Sell => "sell",
         crate::models::request::QuoteType::Buy => "buy",
     };
+
+    let base_id = find_asset_id(&state, &base_asset).await?;
+    let quote_id = find_asset_id(&state, &quote_asset).await?;
+
+    maybe_invalidate_quote_cache(&state, &base, &quote, base_id, quote_id).await?;
+
+    // Try to get from cache first
+    let amount_str = format!("{:.7}", amount);
+    let quote_cache_key = cache::keys::quote(&base, &quote, &amount_str, slippage_bps, quote_type);
+    if let Some(cache) = &state.cache {
+        if let Ok(mut cache) = cache.try_lock() {
+            if let Some(cached) = cache.get::<QuoteResponse>(&quote_cache_key).await {
+                state.cache_metrics.inc_quote_hit();
+                debug!("Returning cached quote for {}/{}", base, quote);
+                return Ok(Json(cached));
+            }
+
+            state.cache_metrics.inc_quote_miss();
+        }
+    }
+
+    // For now, implement simple direct path (SDEX only)
+    // TODO: Implement multi-hop routing in Phase 2
+    let (price, path) = find_best_price(&state, &base_asset, &quote_asset, base_id, quote_id, amount).await?;
+
+    let total = amount * price;
+    let timestamp = chrono::Utc::now().timestamp();
 
     let response = QuoteResponse {
         base_asset: asset_path_to_info(&base_asset),
@@ -110,9 +124,9 @@ pub async fn get_quote(
         if let Ok(mut cache) = cache.try_lock() {
             let _ = cache
                 .set(
-                    &cache::keys::quote(&base, &quote, &amount_str),
+                    &quote_cache_key,
                     &response,
-                    Duration::from_secs(2),
+                    state.cache_policy.quote_ttl,
                 )
                 .await;
         }
@@ -126,12 +140,10 @@ async fn find_best_price(
     state: &AppState,
     base: &AssetPath,
     quote: &AssetPath,
+    base_id: uuid::Uuid,
+    quote_id: uuid::Uuid,
     _amount: f64,
 ) -> Result<(f64, Vec<PathStep>)> {
-    // Get asset IDs
-    let base_id = find_asset_id(state, base).await?;
-    let quote_id = find_asset_id(state, quote).await?;
-
     // Find best offer
     let row = sqlx::query(
         r#"
@@ -175,6 +187,66 @@ async fn find_best_price(
         }
         None => Err(ApiError::NoRouteFound),
     }
+}
+
+async fn maybe_invalidate_quote_cache(
+    state: &AppState,
+    base: &str,
+    quote: &str,
+    base_id: uuid::Uuid,
+    quote_id: uuid::Uuid,
+) -> Result<()> {
+    let liquidity_revision = get_liquidity_revision(state, base_id, quote_id).await?;
+
+    if let Some(cache) = &state.cache {
+        if let Ok(mut cache) = cache.try_lock() {
+            let revision_key = cache::keys::liquidity_revision(base, quote);
+            let cached_revision = cache.get::<String>(&revision_key).await;
+
+            if cached_revision.as_deref() != Some(liquidity_revision.as_str()) {
+                if cached_revision.is_some() {
+                    let pattern = cache::keys::quote_pair_pattern(base, quote);
+                    let deleted = cache.delete_by_pattern(&pattern).await.unwrap_or(0);
+                    debug!(
+                        "Liquidity revision changed for {}/{}; invalidated {} quote cache keys",
+                        base, quote, deleted
+                    );
+                }
+
+                let _ = cache
+                    .set(
+                        &revision_key,
+                        &liquidity_revision,
+                        std::time::Duration::from_secs(3600),
+                    )
+                    .await;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn get_liquidity_revision(
+    state: &AppState,
+    base_id: uuid::Uuid,
+    quote_id: uuid::Uuid,
+) -> Result<String> {
+    let row = sqlx::query(
+        r#"
+        select coalesce(max(source_ledger), 0)::bigint as revision
+        from normalized_liquidity
+        where (selling_asset_id = $1 and buying_asset_id = $2)
+           or (selling_asset_id = $2 and buying_asset_id = $1)
+        "#,
+    )
+    .bind(base_id)
+    .bind(quote_id)
+    .fetch_one(&state.db)
+    .await?;
+
+    let revision: i64 = row.get("revision");
+    Ok(revision.to_string())
 }
 
 /// Find asset ID in database

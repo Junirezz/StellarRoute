@@ -7,6 +7,8 @@ use serde::Deserialize;
 pub struct QuoteParams {
     /// Amount to trade
     pub amount: Option<String>,
+    /// Slippage tolerance in basis points (e.g. 50 = 0.50%)
+    pub slippage_bps: Option<u32>,
     /// Type of quote (buy or sell)
     #[serde(default = "default_quote_type")]
     pub quote_type: QuoteType,

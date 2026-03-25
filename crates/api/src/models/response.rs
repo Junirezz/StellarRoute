@@ -19,6 +19,13 @@ pub struct HealthResponse {
     pub components: std::collections::HashMap<String, ComponentStatus>,
 }
 
+/// Cache metrics response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CacheMetricsResponse {
+    pub quote_hits: u64,
+    pub quote_misses: u64,
+}
+
 /// Trading pair information — matches GET /api/v1/pairs spec
 ///
 /// `base` / `counter` are human-readable codes (e.g. "XLM", "USDC").

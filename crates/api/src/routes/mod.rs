@@ -1,6 +1,7 @@
 //! API routes
 
 pub mod health;
+pub mod metrics;
 pub mod orderbook;
 pub mod pairs;
 pub mod quote;
@@ -15,6 +16,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
     Router::new()
         // Health check
         .route("/health", get(health::health_check))
+        .route("/metrics/cache", get(metrics::cache_metrics))
         // API v1 routes
         .route("/api/v1/pairs", get(pairs::list_pairs))
         .route(

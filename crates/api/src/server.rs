@@ -18,7 +18,7 @@ use crate::{
     error::Result,
     middleware::{EndpointConfig, RateLimitLayer},
     routes,
-    state::AppState,
+    state::{AppState, CachePolicy},
 };
 
 /// API server configuration
@@ -34,6 +34,8 @@ pub struct ServerConfig {
     pub enable_compression: bool,
     /// Redis URL (optional)
     pub redis_url: Option<String>,
+    /// Quote cache TTL in seconds
+    pub quote_cache_ttl_seconds: u64,
 }
 
 impl Default for ServerConfig {
@@ -44,6 +46,7 @@ impl Default for ServerConfig {
             enable_cors: true,
             enable_compression: true,
             redis_url: None,
+            quote_cache_ttl_seconds: 2,
         }
     }
 }
@@ -57,6 +60,10 @@ pub struct Server {
 impl Server {
     /// Create a new API server
     pub async fn new(config: ServerConfig, db: PgPool) -> Self {
+        let cache_policy = CachePolicy {
+            quote_ttl: std::time::Duration::from_secs(config.quote_cache_ttl_seconds),
+        };
+
         // Try to connect to Redis if URL is provided
         let (state, rate_limit_layer) = if let Some(redis_url) = &config.redis_url {
             match CacheManager::new(redis_url).await {
@@ -81,12 +88,15 @@ impl Server {
                         }
                     };
 
-                    (Arc::new(AppState::with_cache(db, cache)), rate_limit)
+                    (
+                        Arc::new(AppState::with_cache_and_policy(db, cache, cache_policy.clone())),
+                        rate_limit,
+                    )
                 }
                 Err(e) => {
                     warn!("⚠️  Redis connection failed, running without cache: {}", e);
                     (
-                        Arc::new(AppState::new(db)),
+                        Arc::new(AppState::new_with_policy(db, cache_policy.clone())),
                         RateLimitLayer::in_memory(EndpointConfig::default()),
                     )
                 }
@@ -94,7 +104,7 @@ impl Server {
         } else {
             info!("ℹ️  Running without Redis cache");
             (
-                Arc::new(AppState::new(db)),
+                Arc::new(AppState::new_with_policy(db, cache_policy)),
                 RateLimitLayer::in_memory(EndpointConfig::default()),
             )
         };
