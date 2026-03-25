@@ -40,6 +40,16 @@ export type {
   PairsResponse,
   PathStep,
   PriceQuote,
+  QuoteStalenessConfig,
   QuoteType,
   TradingPair,
 } from './types.js';
+
+export {
+  DEFAULT_STALENESS_CONFIG,
+  isQuoteStale,
+  isQuoteExpired,
+  getTimeUntilExpiry,
+} from './types.js';
+
+export * from './websocket.js';

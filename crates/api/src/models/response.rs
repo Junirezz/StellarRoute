@@ -19,6 +19,13 @@ pub struct HealthResponse {
     pub components: std::collections::HashMap<String, ComponentStatus>,
 }
 
+/// Cache metrics response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CacheMetricsResponse {
+    pub quote_hits: u64,
+    pub quote_misses: u64,
+}
+
 /// Trading pair information — matches GET /api/v1/pairs spec
 ///
 /// `base` / `counter` are human-readable codes (e.g. "XLM", "USDC").
@@ -115,7 +122,7 @@ pub struct OrderbookLevel {
     pub total: String,
 }
 
-/// Price quote response
+/// Price quote response with expiry and staleness metadata
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct QuoteResponse {
     pub base_asset: AssetInfo,
@@ -125,7 +132,79 @@ pub struct QuoteResponse {
     pub total: String,
     pub quote_type: String,
     pub path: Vec<PathStep>,
+    /// Unix timestamp (ms) when this quote was generated
     pub timestamp: i64,
+    /// Unix timestamp (ms) when this quote expires and should be considered stale
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<i64>,
+    /// Unix timestamp (ms) of the underlying data source (e.g., orderbook snapshot)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_timestamp: Option<i64>,
+    /// Time-to-live in seconds for client-side staleness detection
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ttl_seconds: Option<u32>,
+}
+
+/// Configuration for quote staleness detection
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct QuoteStalenessConfig {
+    /// Maximum quote age in seconds before considering stale
+    pub max_age_seconds: u32,
+    /// Whether to reject stale quotes on the client side
+    pub reject_stale: bool,
+}
+
+impl Default for QuoteStalenessConfig {
+    fn default() -> Self {
+        Self {
+            max_age_seconds: 30,
+            reject_stale: false,
+        }
+    }
+}
+
+impl QuoteResponse {
+    /// Check if this quote is considered stale based on the given config
+    pub fn is_stale(&self, config: &QuoteStalenessConfig) -> bool {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+        
+        let age_ms = now - self.timestamp;
+        let max_age_ms = config.max_age_seconds as i64 * 1000;
+        
+        age_ms > max_age_ms
+    }
+    
+    /// Create a quote response with expiry metadata
+    pub fn with_expiry(mut self, ttl_seconds: u32) -> Self {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+        
+        self.expires_at = Some(now + (ttl_seconds as i64 * 1000));
+        self.ttl_seconds = Some(ttl_seconds);
+        self
+    }
+}
+
+/// Rationale metadata for quote venue selection
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct QuoteRationaleMetadata {
+    pub strategy: String,
+    pub selected_source: String,
+    pub compared_venues: Vec<VenueEvaluation>,
+}
+
+/// Per-venue comparison details for direct route evaluation
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VenueEvaluation {
+    pub source: String,
+    pub price: String,
+    pub available_amount: String,
+    pub executable: bool,
 }
 
 /// Step in a trading path

@@ -74,6 +74,10 @@ async fn main() {
         enable_cors: true,
         enable_compression: true,
         redis_url: std::env::var("REDIS_URL").ok(),
+        quote_cache_ttl_seconds: std::env::var("QUOTE_CACHE_TTL_SECONDS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(2),
     };
 
     // Create and start server

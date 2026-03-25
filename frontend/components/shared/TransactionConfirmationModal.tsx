@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { PathStep } from "@/types";
+import { describeTradeRoute } from "@/lib/route-helpers";
 import { TransactionStatus } from "@/types/transaction";
 import {
   ArrowDown,
@@ -30,8 +31,9 @@ interface TransactionConfirmationModalProps {
   toAmount: string;
   exchangeRate: string;
   priceImpact: string;
-  minReceived: string;
+  minReceived?: string;
   networkFee: string;
+  slippageTolerancePct?: number;
   routePath: PathStep[];
   // Actions
   onConfirm: () => void;
@@ -40,6 +42,13 @@ interface TransactionConfirmationModalProps {
   status: TransactionStatus | "review";
   errorMessage?: string;
   txHash?: string;
+}
+
+function parseMaybeNumber(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return undefined;
+  return n;
 }
 
 export function TransactionConfirmationModal({
@@ -53,6 +62,7 @@ export function TransactionConfirmationModal({
   priceImpact,
   minReceived,
   networkFee,
+  slippageTolerancePct,
   routePath,
   onConfirm,
   onCancel,
@@ -61,6 +71,20 @@ export function TransactionConfirmationModal({
   txHash,
 }: TransactionConfirmationModalProps) {
   const [countdown, setCountdown] = useState(15);
+
+  const computedMinReceived = useMemo(() => {
+    const toAmountN = parseMaybeNumber(toAmount);
+    if (toAmountN === undefined) return undefined;
+    if (slippageTolerancePct === undefined) return undefined;
+
+    const slippageFactor = 1 - slippageTolerancePct / 100;
+    if (!(slippageFactor >= 0)) return undefined;
+
+    // Keep it as a string to avoid locale formatting drift.
+    return String(toAmountN * slippageFactor);
+  }, [slippageTolerancePct, toAmount]);
+
+  const minReceivedToDisplay = computedMinReceived ?? minReceived;
 
   // Auto-refresh mock timer during review state
   useEffect(() => {
@@ -152,37 +176,69 @@ export function TransactionConfirmationModal({
                   </span>
                 </div>
                 <div className="flex justify-between">
+                  <span className="text-muted-foreground">Slippage</span>
+                  <span>
+                    {slippageTolerancePct === undefined
+                      ? "—"
+                      : `${slippageTolerancePct}%`}
+                  </span>
+                </div>
+                <div className="flex justify-between">
                   <span className="text-muted-foreground">Minimum Received</span>
                   <span>
-                    {minReceived} {toAsset}
+                    {minReceivedToDisplay ?? "—"} {toAsset}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Network Fee</span>
                   <span>{networkFee} XLM</span>
                 </div>
-                <div className="flex justify-between items-center pt-2">
-                  <span className="text-muted-foreground">Route</span>
-                  <div className="flex items-center gap-1 text-xs">
+                <div className="flex flex-col gap-1 sm:flex-row sm:justify-between sm:items-center pt-2">
+                  <span className="text-muted-foreground shrink-0">Route</span>
+                  <div
+                    className="flex flex-wrap items-center gap-x-0.5 gap-y-1 text-xs sm:justify-end sm:max-w-[min(100%,16rem)]"
+                    aria-label={`Execution route: ${describeTradeRoute(routePath)}`}
+                  >
                     {routePath.map((step, idx) => {
-                      const from = step.from_asset.asset_type === 'native' ? 'XLM' : step.from_asset.asset_code;
-                      const to = step.to_asset.asset_type === 'native' ? 'XLM' : step.to_asset.asset_code;
-                       return (
-                         <span key={idx} className="flex items-center gap-1">
-                           {idx === 0 && <span>{from}</span>}
-                           <ChevronRight className="w-3 h-3 text-muted-foreground" />
-                           <span>{to}</span>
-                         </span>
-                       )
+                      const from =
+                        step.from_asset.asset_type === "native"
+                          ? "XLM"
+                          : step.from_asset.asset_code;
+                      const to =
+                        step.to_asset.asset_type === "native"
+                          ? "XLM"
+                          : step.to_asset.asset_code;
+                      return (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center gap-0.5"
+                          aria-hidden="true"
+                        >
+                          {idx === 0 && <span>{from}</span>}
+                          <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />
+                          <span>{to}</span>
+                        </span>
+                      );
                     })}
                   </div>
                 </div>
+              </div>
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-100">
+                Demo mode: signing and submission are simulated — not yet on-chain.
               </div>
             </div>
 
             <DialogFooter className="flex-col sm:flex-col gap-2">
               <Button onClick={onConfirm} className="w-full" size="lg">
                 Confirm Swap
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => handleOpenChange(false)}
+              >
+                Cancel
               </Button>
               <div className="text-center text-xs text-muted-foreground">
                 Quote refreshes in {countdown}s
@@ -207,6 +263,9 @@ export function TransactionConfirmationModal({
               <DialogDescription>
                 Please confirm the transaction in your wallet to continue.
               </DialogDescription>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Demo mode: this action is simulated — not yet on-chain.
+              </p>
             </div>
           </div>
         )}

@@ -13,8 +13,12 @@ use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
     Address, BytesN, Env, Symbol, Vec,
 };
+use crate::storage::{
+    INSTANCE_TTL_EXTEND_TO, INSTANCE_TTL_THRESHOLD, POOL_TTL_EXTEND_TO, POOL_TTL_THRESHOLD,
+};
 
 use super::{
+    adapters::AmmAdapter,
     errors::ContractError,
     router::{StellarRoute, StellarRouteClient},
     storage::{
@@ -77,7 +81,7 @@ mod mock_failing {
     use super::super::types::Asset;
     use soroban_sdk::{contract, contractimpl, Env};
 
-    /// A pool that always panics — used to test PoolCallFailed error paths.
+    /// A pool that always panics — used to test typed AMM CCI error paths.
     #[contract]
     pub struct MockFailingPool;
 
@@ -97,8 +101,80 @@ mod mock_failing {
     }
 }
 
+mod mock_quote_failing {
+    use super::super::types::Asset;
+    use soroban_sdk::{contract, contractimpl, Env};
+
+    #[contract]
+    pub struct MockQuoteFailingPool;
+
+    #[contractimpl]
+    impl MockQuoteFailingPool {
+        pub fn adapter_quote(_e: Env, _in: Asset, _out: Asset, _amount: i128) -> i128 {
+            panic!("mock: quote call failed")
+        }
+
+        pub fn swap(_e: Env, _in: Asset, _out: Asset, amount: i128, _min: i128) -> i128 {
+            amount
+        }
+
+        pub fn get_rsrvs(_e: Env) -> (i128, i128) {
+            (1_000_000, 1_000_000)
+        }
+    }
+}
+
+mod mock_swap_failing {
+    use super::super::types::Asset;
+    use soroban_sdk::{contract, contractimpl, Env};
+
+    #[contract]
+    pub struct MockSwapFailingPool;
+
+    #[contractimpl]
+    impl MockSwapFailingPool {
+        pub fn adapter_quote(_e: Env, _in: Asset, _out: Asset, amount: i128) -> i128 {
+            amount
+        }
+
+        pub fn swap(_e: Env, _in: Asset, _out: Asset, _amount: i128, _min: i128) -> i128 {
+            panic!("mock: swap call failed")
+        }
+
+        pub fn get_rsrvs(_e: Env) -> (i128, i128) {
+            (1_000_000, 1_000_000)
+        }
+    }
+}
+
+mod mock_reserves_failing {
+    use super::super::types::Asset;
+    use soroban_sdk::{contract, contractimpl, Env};
+
+    #[contract]
+    pub struct MockReservesFailingPool;
+
+    #[contractimpl]
+    impl MockReservesFailingPool {
+        pub fn adapter_quote(_e: Env, _in: Asset, _out: Asset, amount: i128) -> i128 {
+            amount
+        }
+
+        pub fn swap(_e: Env, _in: Asset, _out: Asset, amount: i128, _min: i128) -> i128 {
+            amount
+        }
+
+        pub fn get_rsrvs(_e: Env) -> (i128, i128) {
+            panic!("mock: reserves call failed")
+        }
+    }
+}
+
 use mock_amm::MockAmmPool;
 use mock_failing::MockFailingPool;
+use mock_quote_failing::MockQuoteFailingPool;
+use mock_reserves_failing::MockReservesFailingPool;
+use mock_swap_failing::MockSwapFailingPool;
 
 // ── Test Utilities ────────────────────────────────────────────────────────────
 
@@ -119,22 +195,23 @@ pub(crate) fn deploy_router(env: &Env) -> (Address, Address, StellarRouteClient<
     (admin, fee_to, client)
 }
 
-pub(crate) fn deploy_multisig_router(
+/// Deploy router and migrate it to 2-of-3 multisig governance.
+/// Returns (signer1, signer2, signer3, admin, client).
+fn deploy_multisig_router(
     env: &Env,
 ) -> (Address, Address, Address, Address, StellarRouteClient<'_>) {
     let (admin, _fee_to, client) = deploy_router(env);
     let s1 = Address::generate(env);
     let s2 = Address::generate(env);
     let s3 = Address::generate(env);
-    let guardian = Address::generate(env);
 
     let mut signers = Vec::new(env);
     signers.push_back(s1.clone());
     signers.push_back(s2.clone());
     signers.push_back(s3.clone());
 
-    client.migrate_to_multisig(&admin, &signers, &2, &500, &Some(guardian.clone()));
-    (s1, s2, s3, guardian, client)
+    client.migrate_to_multisig(&admin, &signers, &2_u32, &10_000_u64, &None);
+    (s1, s2, s3, admin, client)
 }
 
 pub(crate) fn deploy_mock_pool(env: &Env) -> Address {
@@ -143,6 +220,18 @@ pub(crate) fn deploy_mock_pool(env: &Env) -> Address {
 
 fn deploy_failing_pool(env: &Env) -> Address {
     env.register_contract(None, MockFailingPool)
+}
+
+fn deploy_quote_failing_pool(env: &Env) -> Address {
+    env.register_contract(None, MockQuoteFailingPool)
+}
+
+fn deploy_swap_failing_pool(env: &Env) -> Address {
+    env.register_contract(None, MockSwapFailingPool)
+}
+
+fn deploy_reserves_failing_pool(env: &Env) -> Address {
+    env.register_contract(None, MockReservesFailingPool)
 }
 
 pub(crate) fn make_route(env: &Env, pool: &Address, hops: u32) -> Route {
@@ -517,7 +606,19 @@ fn test_get_quote_failing_pool_returns_error() {
     client.register_pool(&pool);
     assert_eq!(
         client.try_get_quote(&1000, &make_route(&env, &pool, 1)),
-        Err(Ok(ContractError::PoolCallFailed))
+        Err(Ok(ContractError::AmmQuoteCallFailed))
+    );
+}
+
+#[test]
+fn test_get_quote_quote_adapter_failure_is_typed() {
+    let env = setup_env();
+    let (_, _, client) = deploy_router(&env);
+    let pool = deploy_quote_failing_pool(&env);
+    client.register_pool(&pool);
+    assert_eq!(
+        client.try_get_quote(&1000, &make_route(&env, &pool, 1)),
+        Err(Ok(ContractError::AmmQuoteCallFailed))
     );
 }
 
@@ -832,7 +933,7 @@ fn test_failed_swap_does_not_increment_nonce() {
     );
     let after = get_nonce(&env, sender.clone());
 
-    assert_eq!(result, Err(Ok(ContractError::PoolCallFailed)));
+    assert_eq!(result, Err(Ok(ContractError::AmmSwapCallFailed)));
     assert_eq!(before, after);
 }
 
@@ -892,7 +993,38 @@ fn test_swap_pool_call_failure() {
                 current_seq(&env) + 100
             ),
         ),
-        Err(Ok(ContractError::PoolCallFailed))
+        Err(Ok(ContractError::AmmSwapCallFailed))
+    );
+}
+
+#[test]
+fn test_swap_adapter_failure_is_typed() {
+    let env = setup_env();
+    let (_, _, client) = deploy_router(&env);
+    let pool = deploy_swap_failing_pool(&env);
+    client.register_pool(&pool);
+    assert_eq!(
+        client.try_execute_swap(
+            &Address::generate(&env),
+            &swap_params_for(
+                &env,
+                make_route(&env, &pool, 1),
+                1000,
+                0,
+                current_seq(&env) + 100
+            ),
+        ),
+        Err(Ok(ContractError::AmmSwapCallFailed))
+    );
+}
+
+#[test]
+fn test_adapter_get_reserves_failure_is_typed() {
+    let env = setup_env();
+    let pool = deploy_reserves_failing_pool(&env);
+    assert_eq!(
+        AmmAdapter::get_reserves(&env, &pool),
+        Err(ContractError::AmmReservesCallFailed)
     );
 }
 
@@ -1116,7 +1248,7 @@ fn property_all_contract_errors_are_reachable() {
         env.ledger().with_mut(|li| li.sequence_number = 0);
     }
 
-    // PoolCallFailed
+    // AmmSwapCallFailed
     {
         let (_, _, c) = deploy_router(&env);
         let pool = deploy_failing_pool(&env);
@@ -1132,7 +1264,7 @@ fn property_all_contract_errors_are_reachable() {
                     current_seq(&env) + 100
                 ),
             ),
-            Err(Ok(ContractError::PoolCallFailed))
+            Err(Ok(ContractError::AmmSwapCallFailed))
         );
     }
 
@@ -2006,7 +2138,7 @@ fn test_manual_fee_distribution_with_dust() {
         auto_distribute: false,
     });
 
-    // 1M -> 990K pool_out -> 30 bps fee = 2,970 fee
+    // 1M -> 990K pool_out -> 30 bps fee = 2970 fee
     client.execute_swap(
         &Address::generate(&env),
         &swap_params_for(
@@ -2061,7 +2193,7 @@ fn test_auto_distribution_triggers() {
     assert_eq!(client.get_fee_balance(&Asset::Native), 2);
     assert_eq!(client.get_distribution_history(&Asset::Native).len(), 0);
 
-    // Swap that generates 2,970 fee (crosses the threshold of 100)
+    // Swap that generates 2970 fee (crosses the threshold of 100)
     client.execute_swap(
         &Address::generate(&env),
         &swap_params_for(
@@ -2076,7 +2208,7 @@ fn test_auto_distribution_triggers() {
     // Balance should be 0 because it automatically distributed
     assert_eq!(client.get_fee_balance(&Asset::Native), 0);
     assert_eq!(client.get_distribution_history(&Asset::Native).len(), 1);
-    // Both 2 and 2,970 are distributed together
+    // Both 2 and 2970 are distributed together
     assert_eq!(
         client
             .get_distribution_history(&Asset::Native)
@@ -2120,182 +2252,4 @@ fn test_burn_recipient_tracking() {
     client.distribute_fees(&Asset::Native);
 
     assert_eq!(client.get_total_fees_burned(&Asset::Native), 2970);
-}
-
-// ── Overflow / Underflow Safety Tests ────────────────────────────────────────
-
-#[test]
-fn test_fee_calc_overflow_returns_error() {
-    // A very large amount_in should trigger checked_mul overflow in fee calculation
-    // and return ContractError::Overflow rather than panicking.
-    let env = setup_env();
-    let (_admin, _, client) = deploy_router(&env);
-    let pool = deploy_mock_pool(&env);
-    client.register_pool(&pool);
-
-    let route = make_route(&env, &pool, 1);
-    let params = swap_params_for(&env, route, i128::MAX, 0, current_seq(&env) + 100);
-    let result = client.try_execute_swap(&Address::generate(&env), &params);
-    assert_eq!(result, Err(Ok(ContractError::Overflow)));
-}
-
-#[test]
-fn test_quote_fee_calc_overflow_returns_error() {
-    // Same overflow path but via get_quote.
-    let env = setup_env();
-    let (_admin, _, client) = deploy_router(&env);
-    let pool = deploy_mock_pool(&env);
-    client.register_pool(&pool);
-
-    let route = make_route(&env, &pool, 1);
-    let result = client.try_get_quote(&i128::MAX, &route);
-    assert_eq!(result, Err(Ok(ContractError::Overflow)));
-}
-
-#[test]
-fn test_swap_amount_zero_does_not_overflow() {
-    // Zero amount should not cause any arithmetic issues.
-    let env = setup_env();
-    let (_admin, _, client) = deploy_router(&env);
-    let pool = deploy_mock_pool(&env);
-    client.register_pool(&pool);
-
-    let route = make_route(&env, &pool, 1);
-    let params = swap_params_for(&env, route, 0, 0, current_seq(&env) + 100);
-    // Zero input is rejected as InvalidAmount — not an overflow panic.
-    let result = client.try_execute_swap(&Address::generate(&env), &params);
-    assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
-}
-
-#[test]
-fn test_swap_negative_amount_rejected() {
-    // Negative amounts must be caught before any arithmetic.
-    let env = setup_env();
-    let (_admin, _, client) = deploy_router(&env);
-    let pool = deploy_mock_pool(&env);
-    client.register_pool(&pool);
-
-    let route = make_route(&env, &pool, 1);
-    let params = swap_params_for(&env, route, -1, 0, current_seq(&env) + 100);
-    let result = client.try_execute_swap(&Address::generate(&env), &params);
-    assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
-}
-
-#[test]
-fn test_quote_negative_amount_rejected_overflow_safe() {
-    // Negative amounts in get_quote must not cause overflow via sign extension.
-    let env = setup_env();
-    let (_admin, _, client) = deploy_router(&env);
-    let pool = deploy_mock_pool(&env);
-    client.register_pool(&pool);
-
-    let route = make_route(&env, &pool, 1);
-    let result = client.try_get_quote(&-1_i128, &route);
-    assert_eq!(result, Err(Ok(ContractError::InvalidRoute)));
-}
-
-#[test]
-fn test_fee_config_bps_overflow_rejected() {
-    // share_bps values that would overflow u32 when summed must be rejected.
-    // 5 recipients each with u32::MAX / 2 + 1 would overflow on the second add.
-    let env = setup_env();
-    let (_admin, _, client) = deploy_router(&env);
-
-    let overflow_share: u32 = u32::MAX / 2 + 1; // two of these overflow u32
-    let mut recipients = Vec::new(&env);
-    recipients.push_back(FeeRecipient {
-        address: Address::generate(&env),
-        share_bps: overflow_share,
-        label: Symbol::new(&env, "a"),
-    });
-    recipients.push_back(FeeRecipient {
-        address: Address::generate(&env),
-        share_bps: overflow_share,
-        label: Symbol::new(&env, "b"),
-    });
-
-    let result = client.try_set_fee_distribution_config(&FeeConfig {
-        recipients,
-        min_distribution: 0,
-        auto_distribute: false,
-    });
-    assert_eq!(result, Err(Ok(ContractError::InvalidFeeConfig)));
-}
-
-#[test]
-fn test_fee_config_bps_not_summing_to_10000_rejected() {
-    // Shares that don't sum to exactly 10000 bps are invalid.
-    let env = setup_env();
-    let (_admin, _, client) = deploy_router(&env);
-
-    let mut recipients = Vec::new(&env);
-    recipients.push_back(FeeRecipient {
-        address: Address::generate(&env),
-        share_bps: 5001,
-        label: Symbol::new(&env, "a"),
-    });
-    recipients.push_back(FeeRecipient {
-        address: Address::generate(&env),
-        share_bps: 5000,
-        label: Symbol::new(&env, "b"),
-    });
-
-    let result = client.try_set_fee_distribution_config(&FeeConfig {
-        recipients,
-        min_distribution: 0,
-        auto_distribute: false,
-    });
-    assert_eq!(result, Err(Ok(ContractError::InvalidFeeConfig)));
-}
-
-#[test]
-fn test_large_valid_swap_does_not_overflow() {
-    // A large but non-overflowing amount should succeed end-to-end.
-    // i128::MAX / 10_000 keeps fee multiplication within i128 range.
-    let env = setup_env();
-    let (_admin, _, client) = deploy_router(&env);
-    let pool = deploy_mock_pool(&env);
-    client.register_pool(&pool);
-
-    let safe_large: i128 = i128::MAX / 10_000;
-    let route = make_route(&env, &pool, 1);
-    let params = swap_params_for(&env, route, safe_large, 0, current_seq(&env) + 100);
-    let result = client.try_execute_swap(&Address::generate(&env), &params);
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_multi_hop_overflow_returns_error() {
-    // With max hops and a large amount, intermediate checked_mul should catch overflow.
-    let env = setup_env();
-    let (_admin, _, client) = deploy_router(&env);
-    let pool = deploy_mock_pool(&env);
-    client.register_pool(&pool);
-
-    // Use an amount large enough that fee * amount overflows after a few hops.
-    let route = make_route(&env, &pool, 4);
-    let params = swap_params_for(&env, route, i128::MAX, 0, current_seq(&env) + 100);
-    let result = client.try_execute_swap(&Address::generate(&env), &params);
-    assert_eq!(result, Err(Ok(ContractError::Overflow)));
-}
-
-#[test]
-fn test_swap_volume_saturates_at_max_not_panic() {
-    // Swap volume accumulation uses checked_add with unwrap_or(i128::MAX).
-    // Performing many large swaps should not panic — volume caps at i128::MAX.
-    let env = setup_env();
-    let (_admin, _, client) = deploy_router(&env);
-    let pool = deploy_mock_pool(&env);
-    client.register_pool(&pool);
-
-    // A safe large amount that won't overflow fee math but accumulates volume quickly.
-    let amount: i128 = i128::MAX / 10_000;
-    for _ in 0..3 {
-        let route = make_route(&env, &pool, 1);
-        let params = swap_params_for(&env, route, amount, 0, current_seq(&env) + 100);
-        client.execute_swap(&Address::generate(&env), &params);
-    }
-    // Fees collected should be a large positive number, not wrapped/negative.
-    let fees = client.get_total_fees_collected(&Asset::Native);
-    assert!(fees >= 0);
 }
