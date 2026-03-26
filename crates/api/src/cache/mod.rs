@@ -114,10 +114,11 @@ pub mod keys {
         amount: &str,
         slippage_bps: u32,
         quote_type: &str,
+        explain: bool,
     ) -> String {
         format!(
-            "quote:{}:{}:{}:{}:{}",
-            base, quote, amount, slippage_bps, quote_type
+            "quote:{}:{}:{}:{}:{}:{}",
+            base, quote, amount, slippage_bps, quote_type, explain
         )
     }
 
@@ -141,8 +142,8 @@ mod tests {
         assert_eq!(keys::pairs_list(), "pairs:list");
         assert_eq!(keys::orderbook("XLM", "USDC"), "orderbook:XLM:USDC");
         assert_eq!(
-            keys::quote("XLM", "USDC", "100", 50, "sell"),
-            "quote:XLM:USDC:100:50:sell"
+            keys::quote("XLM", "USDC", "100", 50, "sell", true),
+            "quote:XLM:USDC:100:50:sell:true"
         );
         assert_eq!(
             keys::liquidity_revision("XLM", "USDC"),

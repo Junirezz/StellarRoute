@@ -12,6 +12,8 @@ pub struct QuoteParams {
     /// Type of quote (buy or sell)
     #[serde(default = "default_quote_type")]
     pub quote_type: QuoteType,
+    /// Explain the route selection with decision diagnostics
+    pub explain: Option<bool>,
 }
 
 fn default_quote_type() -> QuoteType {
