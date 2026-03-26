@@ -34,7 +34,9 @@ export const XIcon = Icon;
 
 // Additional icons referenced by components/tests
 export const ArrowLeftRight = Icon;
+export const Check = Icon;
 export const Copy = Icon;
+export const History = Icon;
 export const Search = Icon;
 
 export const AlertTriangle = Icon;
