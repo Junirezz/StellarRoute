@@ -23,7 +23,7 @@ impl Default for PathfinderConfig {
 }
 
 /// Represents a liquidity edge in the routing graph
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LiquidityEdge {
     pub from: String,
     pub to: String,

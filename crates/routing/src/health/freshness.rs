@@ -86,7 +86,13 @@ impl FreshnessGuard {
                 staleness_secs: u64::MAX,
             },
             Some(ts) => {
-                let staleness_secs = (now - ts).num_seconds().max(0) as u64;
+                // Use ceil-to-seconds to avoid classifying 60.1s as 60s due truncation.
+                let staleness_ms = (now - ts).num_milliseconds();
+                let staleness_secs = if staleness_ms <= 0 {
+                    0
+                } else {
+                    ((staleness_ms + 999) / 1000) as u64
+                };
                 FreshnessResult {
                     is_fresh: staleness_secs <= threshold,
                     staleness_secs,

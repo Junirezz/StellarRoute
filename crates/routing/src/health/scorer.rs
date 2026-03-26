@@ -109,7 +109,10 @@ pub trait VenueScorer: Send + Sync {
 impl VenueScorer for SdexScorer {
     fn score(&self, input: &VenueScorerInput) -> HealthRecord {
         let now = Utc::now();
-        let staleness_secs = (now - input.last_updated_at).num_seconds().max(0) as u64;
+        let staleness_secs = input
+            .last_updated_at
+            .map(|last_updated_at| (now - last_updated_at).num_seconds().max(0) as u64)
+            .unwrap_or(u64::MAX);
 
         // Stale or missing bids/asks → 0.0
         if staleness_secs > self.staleness_threshold_secs
@@ -143,7 +146,8 @@ impl VenueScorer for SdexScorer {
         let depth = input.depth_top_n_e7.unwrap_or(0) as f64;
         let depth_score = (depth / self.target_depth_e7 as f64).clamp(0.0, 1.0);
 
-        let staleness_score = 1.0 - (staleness_secs as f64 / self.staleness_threshold_secs as f64);
+        let staleness_score: f64 =
+            1.0_f64 - (staleness_secs as f64 / self.staleness_threshold_secs as f64);
         let staleness_score = staleness_score.clamp(0.0, 1.0);
 
         let score =
@@ -166,7 +170,10 @@ impl VenueScorer for SdexScorer {
 impl VenueScorer for AmmScorer {
     fn score(&self, input: &VenueScorerInput) -> HealthRecord {
         let now = Utc::now();
-        let staleness_secs = (now - input.last_updated_at).num_seconds().max(0) as u64;
+        let staleness_secs = input
+            .last_updated_at
+            .map(|last_updated_at| (now - last_updated_at).num_seconds().max(0) as u64)
+            .unwrap_or(u64::MAX);
 
         let reserve_a = input.reserve_a_e7.unwrap_or(0);
         let reserve_b = input.reserve_b_e7.unwrap_or(0);
@@ -192,7 +199,8 @@ impl VenueScorer for AmmScorer {
         let tvl = input.tvl_e7.unwrap_or(0) as f64;
         let tvl_score = (tvl / self.min_tvl_threshold_e7 as f64).clamp(0.0, 1.0);
 
-        let staleness_score = 1.0 - (staleness_secs as f64 / self.staleness_threshold_secs as f64);
+        let staleness_score: f64 =
+            1.0_f64 - (staleness_secs as f64 / self.staleness_threshold_secs as f64);
         let staleness_score = staleness_score.clamp(0.0, 1.0);
 
         let score =

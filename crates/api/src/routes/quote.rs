@@ -1,13 +1,13 @@
 //! Quote endpoint
-//! 
+//!
 //! # Dashboard-Ready Metrics
-//! 
+//!
 //! The quote pipeline emits structured tracing logs with the following metric fields:
 //! - `metric`: Always "stellarroute.quote.request" for request summaries.
 //! - `latency_ms`: Duration of the quote request in milliseconds.
 //! - `cache_hit`: Boolean indicating if the quote was served from cache.
 //! - `error_class`: Outcome category ("validation", "not_found", "stale_market_data", "internal", "none").
-//! 
+//!
 //! Request logs and decision stages include matching `request_id` values.
 
 use axum::{
@@ -19,6 +19,7 @@ use std::sync::Arc;
 use tracing::{debug, info_span, Instrument};
 
 use stellarroute_routing::health::filter::GraphFilter;
+use stellarroute_routing::health::freshness::{FreshnessGuard, FreshnessOutcome};
 use stellarroute_routing::health::policy::{ExclusionPolicy, OverrideRegistry};
 use stellarroute_routing::health::scorer::{
     AmmScorer, HealthScorer, HealthScoringConfig, SdexScorer, VenueScorerInput, VenueType,
@@ -77,7 +78,7 @@ pub async fn get_quote(
 
     async move {
         let res = get_quote_inner(state, base, quote, params).await;
-        
+
         let error_class = match &res {
             Ok(_) => "none",
             Err(ApiError::Validation(_)) | Err(ApiError::InvalidAsset(_)) => "validation",
@@ -87,16 +88,16 @@ pub async fn get_quote(
         };
 
         let latency_ms = start_time.elapsed().as_millis() as u64;
-        
+
         let span = tracing::Span::current();
         span.record("error_class", error_class);
         span.record("latency_ms", latency_ms);
-        
+
         tracing::info!(
             metric = "stellarroute.quote.request",
             "Quote pipeline completed"
         );
-        
+
         res
     }
     .instrument(span)
@@ -174,7 +175,9 @@ async fn get_quote_inner(
     // Req 4.2: increment stale_inputs_excluded counter when stale inputs were excluded
     let stale_count = freshness_outcome.stale.len();
     if stale_count > 0 {
-        state.cache_metrics.add_stale_inputs_excluded(stale_count as u64);
+        state
+            .cache_metrics
+            .add_stale_inputs_excluded(stale_count as u64);
     }
 
     let total = amount * price;
@@ -228,6 +231,15 @@ async fn get_quote_inner(
 }
 
 /// Find best price for a trading pair
+type FindBestPriceResult = (
+    f64,
+    Vec<PathStep>,
+    QuoteRationaleMetadata,
+    ApiExclusionDiagnostics,
+    FreshnessOutcome,
+    Vec<chrono::DateTime<chrono::Utc>>,
+);
+
 #[tracing::instrument(
     name = "find_best_price",
     skip(state, base_id, quote_id),
@@ -245,12 +257,7 @@ async fn find_best_price(
     base_id: uuid::Uuid,
     quote_id: uuid::Uuid,
     amount: f64,
-) -> Result<(
-    f64,
-    Vec<PathStep>,
-    QuoteRationaleMetadata,
-    ApiExclusionDiagnostics,
-)> {
+) -> Result<FindBestPriceResult> {
     let rows = sqlx::query(
         r#"
                 select
@@ -332,6 +339,45 @@ async fn find_best_price(
 
     // Health scoring / exclusion policy (defaults match routing `HealthScoringConfig`)
     let health_config = HealthScoringConfig::default();
+    let freshness_outcome =
+        FreshnessGuard::evaluate(&scorer_inputs, &health_config.freshness_threshold_secs, now);
+
+    tracing::Span::current().record("stale_count", freshness_outcome.stale.len());
+    tracing::Span::current().record("fresh_count", freshness_outcome.fresh.len());
+
+    if freshness_outcome.fresh.is_empty() {
+        state.cache_metrics.inc_stale_rejection();
+        return Err(ApiError::StaleMarketData {
+            stale_count: freshness_outcome.stale.len(),
+            fresh_count: 0,
+            threshold_secs_sdex: health_config.freshness_threshold_secs.sdex,
+            threshold_secs_amm: health_config.freshness_threshold_secs.amm,
+        });
+    }
+
+    let fresh_candidates: Vec<DirectVenueCandidate> = freshness_outcome
+        .fresh
+        .iter()
+        .filter_map(|&idx| candidates.get(idx).cloned())
+        .collect();
+    let fresh_scorer_inputs: Vec<&VenueScorerInput> = freshness_outcome
+        .fresh
+        .iter()
+        .filter_map(|&idx| scorer_inputs.get(idx))
+        .collect();
+    let mut stale_exclusion_entries: Vec<ApiExcludedVenueInfo> = freshness_outcome
+        .stale
+        .iter()
+        .filter_map(|&idx| candidates.get(idx))
+        .map(|candidate| ApiExcludedVenueInfo {
+            venue_ref: candidate.venue_ref.clone(),
+            score: 0.0,
+            signals: serde_json::json!({
+                "source": candidate.comparison_source(),
+            }),
+            reason: ApiExclusionReason::StaleData,
+        })
+        .collect();
 
     let scorer = HealthScorer {
         sdex: SdexScorer {
@@ -424,7 +470,14 @@ async fn find_best_price(
         source: selected.path_source(),
     }];
 
-    Ok((selected.price, path, rationale, api_diagnostics, freshness_outcome, fresh_timestamps))
+    Ok((
+        selected.price,
+        path,
+        rationale,
+        api_diagnostics,
+        freshness_outcome,
+        fresh_timestamps,
+    ))
 }
 
 #[derive(Debug, Clone)]
@@ -794,12 +847,14 @@ mod tests {
         ];
         let amount = 100.0;
 
-        let (selected, rationale) =
-            evaluate_single_hop_direct_venues(fresh_candidates, amount)
-                .expect("must select a venue when fresh candidates have sufficient liquidity");
+        let (selected, rationale) = evaluate_single_hop_direct_venues(fresh_candidates, amount)
+            .expect("must select a venue when fresh candidates have sufficient liquidity");
 
         // Best price (lowest) with sufficient liquidity is selected.
-        assert_eq!(selected.venue_ref, "offer_fresh", "sdex offer should win on price");
+        assert_eq!(
+            selected.venue_ref, "offer_fresh",
+            "sdex offer should win on price"
+        );
         assert_eq!(selected.venue_type, "sdex");
         assert_eq!(rationale.strategy, "single_hop_direct_venue_comparison");
         assert_eq!(rationale.compared_venues.len(), 2);
@@ -826,8 +881,14 @@ mod tests {
             max_staleness_secs: outcome.max_staleness_secs,
         };
 
-        assert_eq!(data_freshness.fresh_count, 2, "fresh_count must match fresh indices");
-        assert_eq!(data_freshness.stale_count, 1, "stale_count must match stale indices");
+        assert_eq!(
+            data_freshness.fresh_count, 2,
+            "fresh_count must match fresh indices"
+        );
+        assert_eq!(
+            data_freshness.stale_count, 1,
+            "stale_count must match stale indices"
+        );
         assert_eq!(data_freshness.max_staleness_secs, 45);
     }
 
@@ -848,7 +909,10 @@ mod tests {
             max_staleness_secs: outcome.max_staleness_secs,
         };
 
-        assert_eq!(data_freshness.stale_count, 0, "stale_count must be zero when all inputs are fresh");
+        assert_eq!(
+            data_freshness.stale_count, 0,
+            "stale_count must be zero when all inputs are fresh"
+        );
         assert_eq!(data_freshness.fresh_count, 3);
     }
 
@@ -869,7 +933,10 @@ mod tests {
             max_staleness_secs: outcome.max_staleness_secs,
         };
 
-        assert_eq!(data_freshness.stale_count, 4, "stale_count must track all stale indices");
+        assert_eq!(
+            data_freshness.stale_count, 4,
+            "stale_count must track all stale indices"
+        );
         assert_eq!(data_freshness.fresh_count, 1);
         assert_eq!(data_freshness.max_staleness_secs, 300);
     }

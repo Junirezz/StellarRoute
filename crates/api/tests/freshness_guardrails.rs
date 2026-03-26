@@ -134,9 +134,16 @@ fn freshness_guard_missing_timestamp_is_always_stale() {
     }];
     let outcome = FreshnessGuard::evaluate(&inputs, &thresholds, now);
 
-    assert!(outcome.fresh.is_empty(), "input with no timestamp must not be fresh");
+    assert!(
+        outcome.fresh.is_empty(),
+        "input with no timestamp must not be fresh"
+    );
     assert_eq!(outcome.stale, vec![0]);
-    assert_eq!(outcome.max_staleness_secs, u64::MAX, "missing timestamp must give MAX staleness");
+    assert_eq!(
+        outcome.max_staleness_secs,
+        u64::MAX,
+        "missing timestamp must give MAX staleness"
+    );
 }
 
 /// Inputs at exactly the threshold boundary are considered fresh (≤, not <).
@@ -151,7 +158,11 @@ fn freshness_guard_at_threshold_boundary_is_fresh() {
     ];
     let outcome = FreshnessGuard::evaluate(&inputs, &thresholds, now);
 
-    assert_eq!(outcome.fresh, vec![0, 1], "inputs exactly at threshold must be fresh");
+    assert_eq!(
+        outcome.fresh,
+        vec![0, 1],
+        "inputs exactly at threshold must be fresh"
+    );
     assert!(outcome.stale.is_empty());
 }
 
@@ -175,8 +186,14 @@ async fn stale_market_data_error_produces_typed_json_details() {
     let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
-    assert_eq!(status, 422, "all-stale quote must return HTTP 422 Unprocessable Entity");
-    assert_eq!(json["error"], "stale_market_data", "error field must be stale_market_data");
+    assert_eq!(
+        status, 422,
+        "all-stale quote must return HTTP 422 Unprocessable Entity"
+    );
+    assert_eq!(
+        json["error"], "stale_market_data",
+        "error field must be stale_market_data"
+    );
     assert_eq!(json["details"]["stale_count"], 3);
     assert_eq!(json["details"]["fresh_count"], 0);
     assert_eq!(json["details"]["threshold_secs_sdex"], 30);
@@ -221,8 +238,14 @@ fn metrics_stale_rejection_counter_tracks_full_rejections() {
     m.inc_stale_rejection(); // quote 2: all stale again
 
     let (rej, excl) = m.snapshot_staleness();
-    assert_eq!(rej, 2, "two full-rejection events must increment counter twice");
-    assert_eq!(excl, 0, "stale_inputs_excluded must not move on full rejections");
+    assert_eq!(
+        rej, 2,
+        "two full-rejection events must increment counter twice"
+    );
+    assert_eq!(
+        excl, 0,
+        "stale_inputs_excluded must not move on full rejections"
+    );
 }
 
 /// stale_inputs_excluded accumulates the count of stale inputs across multiple quotes.
@@ -234,8 +257,14 @@ fn metrics_stale_inputs_excluded_tracks_partial_exclusions() {
     m.add_stale_inputs_excluded(1); // quote 2 excluded 1 stale input
 
     let (rej, excl) = m.snapshot_staleness();
-    assert_eq!(excl, 3, "stale_inputs_excluded must accumulate across calls");
-    assert_eq!(rej, 0, "stale_quote_rejections must not move on partial exclusions");
+    assert_eq!(
+        excl, 3,
+        "stale_inputs_excluded must accumulate across calls"
+    );
+    assert_eq!(
+        rej, 0,
+        "stale_quote_rejections must not move on partial exclusions"
+    );
 }
 
 /// The two staleness counters are entirely independent.
@@ -243,8 +272,8 @@ fn metrics_stale_inputs_excluded_tracks_partial_exclusions() {
 fn metrics_staleness_counters_are_independent() {
     let m = CacheMetrics::default();
 
-    m.inc_stale_rejection();           // 1 full rejection
-    m.add_stale_inputs_excluded(5);    // 5 partially excluded inputs
+    m.inc_stale_rejection(); // 1 full rejection
+    m.add_stale_inputs_excluded(5); // 5 partially excluded inputs
 
     let (rej, excl) = m.snapshot_staleness();
     assert_eq!(rej, 1);
@@ -294,9 +323,9 @@ fn data_freshness_populated_from_mixed_freshness_outcome() {
     let thresholds = default_thresholds();
 
     let inputs = vec![
-        sdex_input(10),  // fresh
-        amm_input(90),   // stale
-        sdex_input(20),  // fresh
+        sdex_input(10), // fresh
+        amm_input(90),  // stale
+        sdex_input(20), // fresh
     ];
     let outcome = FreshnessGuard::evaluate(&inputs, &thresholds, now);
 
@@ -327,7 +356,10 @@ fn data_freshness_stale_count_zero_when_all_inputs_fresh() {
         max_staleness_secs: outcome.max_staleness_secs,
     };
 
-    assert_eq!(df.stale_count, 0, "all-fresh inputs must produce stale_count of zero");
+    assert_eq!(
+        df.stale_count, 0,
+        "all-fresh inputs must produce stale_count of zero"
+    );
     assert_eq!(df.fresh_count, 3);
 }
 
@@ -375,8 +407,14 @@ fn mixed_freshness_increments_excluded_counter_by_stale_count() {
     }
 
     let (rej, excl) = m.snapshot_staleness();
-    assert_eq!(excl, 2, "two stale inputs must be recorded in stale_inputs_excluded");
-    assert_eq!(rej, 0, "no full rejection occurred — some inputs were fresh");
+    assert_eq!(
+        excl, 2,
+        "two stale inputs must be recorded in stale_inputs_excluded"
+    );
+    assert_eq!(
+        rej, 0,
+        "no full rejection occurred — some inputs were fresh"
+    );
 }
 
 /// max_staleness_secs in FreshnessOutcome is the maximum across all evaluated inputs.
@@ -386,9 +424,9 @@ fn max_staleness_secs_is_maximum_across_all_inputs() {
     let thresholds = default_thresholds();
 
     let inputs = vec![
-        sdex_input(5),   //   5 s old
-        amm_input(90),   //  90 s old
-        sdex_input(45),  //  45 s old
+        sdex_input(5),  //   5 s old
+        amm_input(90),  //  90 s old
+        sdex_input(45), //  45 s old
     ];
     let outcome = FreshnessGuard::evaluate(&inputs, &thresholds, now);
 

@@ -127,7 +127,8 @@ fn bench_pathfinding_fixture(c: &mut Criterion) {
     c.bench_function("pathfind_fixture", |b| {
         // Load the representative graph fixture
         let fixture_data = include_str!("../fixtures/graph_fixture.json");
-        let edges: Vec<LiquidityEdge> = serde_json::from_str(fixture_data).expect("Valid fixture data");
+        let edges: Vec<LiquidityEdge> =
+            serde_json::from_str(fixture_data).expect("Valid fixture data");
 
         b.iter(|| {
             let config = PathfinderConfig {

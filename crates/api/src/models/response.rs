@@ -335,7 +335,8 @@ mod tests {
     #[test]
     fn unknown_fields_in_data_freshness_are_ignored() {
         let json = r#"{"fresh_count":3,"stale_count":1,"max_staleness_secs":45,"unknown_field":"ignored"}"#;
-        let df: DataFreshness = serde_json::from_str(json).expect("should deserialize without error");
+        let df: DataFreshness =
+            serde_json::from_str(json).expect("should deserialize without error");
         assert_eq!(df.fresh_count, 3);
         assert_eq!(df.stale_count, 1);
         assert_eq!(df.max_staleness_secs, 45);
@@ -354,7 +355,8 @@ mod tests {
             "path": [],
             "timestamp": 1700000000000
         }"#;
-        let qr: QuoteResponse = serde_json::from_str(json).expect("should deserialize without error");
+        let qr: QuoteResponse =
+            serde_json::from_str(json).expect("should deserialize without error");
         assert!(qr.data_freshness.is_none());
     }
 
@@ -380,9 +382,18 @@ mod tests {
             max_staleness_secs: 30,
         };
         let json = serde_json::to_value(&df).expect("serialize");
-        assert!(json.get("fresh_count").is_some(), "fresh_count key must exist");
-        assert!(json.get("stale_count").is_some(), "stale_count key must exist");
-        assert!(json.get("max_staleness_secs").is_some(), "max_staleness_secs key must exist");
+        assert!(
+            json.get("fresh_count").is_some(),
+            "fresh_count key must exist"
+        );
+        assert!(
+            json.get("stale_count").is_some(),
+            "stale_count key must exist"
+        );
+        assert!(
+            json.get("max_staleness_secs").is_some(),
+            "max_staleness_secs key must exist"
+        );
         // Ensure no camelCase variants leaked
         assert!(json.get("freshCount").is_none());
         assert!(json.get("staleCount").is_none());
