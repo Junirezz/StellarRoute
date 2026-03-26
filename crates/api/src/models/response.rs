@@ -139,7 +139,7 @@ pub struct DataFreshness {
 }
 
 /// Price quote response with expiry and staleness metadata
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct QuoteResponse {
     pub base_asset: AssetInfo,
     pub quote_asset: AssetInfo,
@@ -228,7 +228,7 @@ impl QuoteResponse {
 }
 
 /// Rationale metadata for quote venue selection
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct QuoteRationaleMetadata {
     pub strategy: String,
     pub selected_source: String,
@@ -236,7 +236,7 @@ pub struct QuoteRationaleMetadata {
 }
 
 /// Per-venue comparison details for direct route evaluation
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct VenueEvaluation {
     pub source: String,
     pub price: String,
@@ -245,7 +245,7 @@ pub struct VenueEvaluation {
 }
 
 /// Step in a trading path
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PathStep {
     pub from_asset: AssetInfo,
     pub to_asset: AssetInfo,
