@@ -8,6 +8,7 @@ pub mod error;
 pub mod handlers;
 pub mod load_test;
 pub mod middleware;
+pub mod metrics;
 pub mod models;
 pub mod regions;
 pub mod replay;

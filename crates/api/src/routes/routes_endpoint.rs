@@ -167,6 +167,12 @@ pub async fn get_routes(
                 Err(_) => return Arc::new(Err(ApiError::NoRouteFound)),
             };
 
+            // Record route compute time metric
+            crate::metrics::record_route_compute_time(
+                std::time::Duration::from_millis(diag.total_compute_time_ms),
+                &diag.policy.environment,
+            );
+
             // ── Map diagnostics → response DTO ─────────────────────────────
             let build_candidate =
                 |path: &stellarroute_routing::pathfinder::SwapPath,

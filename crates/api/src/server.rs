@@ -168,7 +168,8 @@ impl Server {
         info!("🚀 StellarRoute API server starting on http://{}", addr);
         info!("📊 Health check: http://{}/health", addr);
         info!("📈 Trading pairs: http://{}/api/v1/pairs", addr);
-        info!("📚 API Documentation: http://{}/swagger-ui", addr);
+        info!("� Prometheus metrics: http://{}/metrics", addr);
+        info!("�📚 API Documentation: http://{}/swagger-ui", addr);
 
         let listener = tokio::net::TcpListener::bind(addr)
             .await

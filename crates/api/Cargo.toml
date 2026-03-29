@@ -51,6 +51,10 @@ parking_lot = "0.12"
 arc-swap = { workspace = true }
 dashmap = "5.5"
 
+# Metrics
+prometheus = "0.13"
+lazy_static = "1.4"
+
 # CLI argument parsing
 clap = { version = "4", features = ["derive"] }
 

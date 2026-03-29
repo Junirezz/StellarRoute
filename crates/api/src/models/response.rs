@@ -24,6 +24,8 @@ pub struct HealthResponse {
 pub struct CacheMetricsResponse {
     pub quote_hits: u64,
     pub quote_misses: u64,
+    /// Cache hit ratio (hits / (hits + misses))
+    pub hit_ratio: f64,
     /// Total quote requests rejected because all inputs were stale
     pub stale_quote_rejections: u64,
     /// Total stale inputs excluded across all successful quotes

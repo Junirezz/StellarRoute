@@ -4,6 +4,7 @@ pub mod health;
 pub mod metrics;
 pub mod orderbook;
 pub mod pairs;
+pub mod prometheus;
 pub mod quote;
 
 pub mod replay;
@@ -23,6 +24,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // Health check
         .route("/health", get(health::health_check))
         .route("/metrics/cache", get(metrics::cache_metrics))
+        .route("/metrics", get(prometheus::prometheus_metrics))
         // API v1 routes
         .route("/api/v1/pairs", get(pairs::list_pairs))
         .route(

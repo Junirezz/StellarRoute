@@ -96,7 +96,7 @@ pub async fn get_quote(
     );
 
     async move {
-        let res = get_quote_inner(state, base_asset, quote_asset, params, explain).await;
+        let (res, cache_hit) = get_quote_inner(state, base_asset, quote_asset, params, explain).await;
 
         let error_class = match &res {
             Ok(_) => "none",
@@ -111,6 +111,13 @@ pub async fn get_quote(
         let span = tracing::Span::current();
         span.record("error_class", error_class);
         span.record("latency_ms", latency_ms);
+
+        // Record Prometheus metrics
+        crate::metrics::record_quote_latency(
+            std::time::Duration::from_millis(latency_ms),
+            error_class,
+            cache_hit,
+        );
 
         tracing::info!(
             metric = "stellarroute.quote.request",
@@ -154,7 +161,7 @@ pub async fn get_batch_quotes(
         let quote_asset = AssetPath::parse(&item.quote)
             .map_err(|e| ApiError::InvalidAsset(format!("Invalid quote asset: {}", e)))?;
             
-        let quote = get_quote_inner(state.clone(), base_asset, quote_asset, params, false).await?;
+        let (quote, _) = get_quote_inner(state.clone(), base_asset, quote_asset, params, false).await?;
         quotes.push(quote);
     }
 
@@ -171,7 +178,7 @@ async fn get_quote_inner(
     quote_asset: AssetPath,
     params: QuoteParams,
     explain: bool,
-) -> Result<QuoteResponse> {
+) -> (Result<QuoteResponse>, bool) {
     let base = base_asset.to_canonical();
     let quote = quote_asset.to_canonical();
 
@@ -233,13 +240,17 @@ async fn get_quote_inner(
                 if let Ok(mut cache) = cache.try_lock() {
                     if let Some(cached) = cache.get::<QuoteResponse>(&quote_cache_key).await {
                         state.cache_metrics.inc_quote_hit();
+                        crate::metrics::record_cache_hit("quote");
                         tracing::Span::current().record("cache_hit", true);
                         debug!("Returning cached quote for {}/{}", base, quote);
-                        // SingleFlight expects Arc<Result<QuoteResponse>>
-                        return Arc::new(Ok(cached));
+                        // SingleFlight expects Arc<Result<(QuoteResponse, bool)>>
+                        return Arc::new(Ok((cached, true)));
                     }
                 }
             }
+
+            // Cache miss
+            crate::metrics::record_cache_miss("quote");
 
             // Compute best price with freshness scoring
             let compute_res =
@@ -327,14 +338,18 @@ async fn get_quote_inner(
                 );
             }
 
-            Arc::new(Ok(response))
+            Arc::new(Ok((response, false)))
         })
         .await;
 
     match Arc::try_unwrap(result_arc) {
-        Ok(res) => res,
-        Err(arc_res) => (*arc_res).clone(),
+        Ok((response, cache_hit)) => (Ok(response), cache_hit),
+        Err(arc_res) => {
+            let (response, cache_hit) = *arc_res;
+            (response, cache_hit)
+        }
     }
+}
 }
 
 /// Get routing path for a trading pair
