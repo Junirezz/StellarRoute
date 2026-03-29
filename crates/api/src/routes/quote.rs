@@ -30,7 +30,7 @@ use stellarroute_routing::health::scorer::{
 use crate::{
     cache,
     error::{ApiError, Result},
-    middleware::validation::ValidatedQuoteRequest,
+    middleware::{validation::ValidatedQuoteRequest, RequestId},
     models::{
         request::{AssetPath, QuoteParams},
         AssetInfo, ExcludedVenueInfo as ApiExcludedVenueInfo,
@@ -64,6 +64,7 @@ use crate::{
 pub async fn get_quote(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
+    request_id: RequestId,
     request: crate::middleware::validation::ValidatedQuoteRequest,
 ) -> Result<Json<QuoteResponse>> {
     let ValidatedQuoteRequest {
@@ -82,12 +83,11 @@ pub async fn get_quote(
         .unwrap_or(false);
     let explain = explain_header || params.explain.unwrap_or(false);
 
-    let request_id = uuid::Uuid::new_v4();
     let start_time = std::time::Instant::now();
 
     let span = info_span!(
         "quote_pipeline",
-        %request_id,
+        request_id = %request_id,
         %base,
         %quote,
         cache_hit = false,
@@ -198,10 +198,10 @@ async fn get_quote_inner(
         crate::models::request::QuoteType::Buy => "buy",
     };
 
-    let base_id = find_asset_id(state, &base_asset).await?;
-    let quote_id = find_asset_id(state, &quote_asset).await?;
+    let base_id = find_asset_id(&state, &base_asset).await?;
+    let quote_id = find_asset_id(&state, &quote_asset).await?;
 
-    maybe_invalidate_quote_cache(state, base, quote, base_id, quote_id).await?;
+    maybe_invalidate_quote_cache(&state, &base, &quote, base_id, quote_id).await?;
 
     // Use single flight for quote computation
     let amount_str = format!("{:.7}", amount);
@@ -243,7 +243,7 @@ async fn get_quote_inner(
 
             // Compute best price with freshness scoring
             let compute_res =
-                find_best_price(state, &base_asset, &quote_asset, base_id, quote_id, amount).await;
+                find_best_price(&state, &base_asset, &quote_asset, base_id, quote_id, amount).await;
 
             let (price, path, rationale, api_diagnostics, freshness_outcome, fresh_timestamps, liquidity_snapshot) =
                 match compute_res {
@@ -319,7 +319,7 @@ async fn get_quote_inner(
                     &quote,
                     &format!("{:.7}", amount),
                     slippage_bps,
-                    quote_type,
+                    quote_type_str,
                     liquidity_snapshot,
                     health_config,
                     &response,

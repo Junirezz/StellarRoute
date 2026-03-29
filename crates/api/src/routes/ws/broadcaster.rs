@@ -204,6 +204,7 @@ async fn broadcaster_loop(
                     source_timestamp: None,
                     ttl_seconds: None,
                     rationale: Some(rationale),
+                    price_impact: None,
                     exclusion_diagnostics: None,
                     data_freshness: None,
                 };

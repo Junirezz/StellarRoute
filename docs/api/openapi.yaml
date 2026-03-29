@@ -30,6 +30,12 @@ info:
 
     Endpoints are rate-limited per IP address.  When the limit is exceeded the
     API returns **429 Too Many Requests** with `X-RateLimit-*` headers.
+
+    ## Request correlation
+
+    Clients may optionally send `X-Request-ID` with any request. The API will
+    reuse that value, or generate a UUID when the header is omitted, and echo
+    the final request ID back in the `X-Request-ID` response header.
   contact:
     name: StellarRoute
     url: https://github.com/stellarroute/stellarroute
@@ -223,6 +229,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/BaseAsset"
         - $ref: "#/components/parameters/QuoteAsset"
+        - $ref: "#/components/parameters/RequestIdHeader"
         - name: amount
           in: query
           description: Amount of the base asset to trade (default `1`)
@@ -252,6 +259,9 @@ paths:
       responses:
         "200":
           description: Best available price quote
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestIdHeader"
           content:
             application/json:
               schema:
@@ -393,6 +403,14 @@ paths:
 
 components:
   parameters:
+    RequestIdHeader:
+      name: X-Request-ID
+      in: header
+      required: false
+      description: Optional client-supplied correlation ID echoed back by the API.
+      schema:
+        type: string
+        example: support-ticket-42
     BaseAsset:
       name: base
       in: path
@@ -441,6 +459,13 @@ components:
           example:
             error: rate_limit_exceeded
             message: Too many requests — please slow down
+
+  headers:
+    RequestIdHeader:
+      description: Correlation ID for the request. Echoes the client-provided value or a server-generated UUID.
+      schema:
+        type: string
+        example: 6b20dc6f-0cab-4f3f-b4eb-4638dbfd0f9d
 
   schemas:
     HealthResponse:

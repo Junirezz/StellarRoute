@@ -41,7 +41,7 @@ use crate::models::{
     info(
         title = "StellarRoute API",
         version = "0.1.0",
-        description = "REST API for DEX aggregation on Stellar Network",
+        description = "REST API for DEX aggregation on Stellar Network. Clients may send an optional X-Request-ID header for support correlation; the API echoes the same header in every response.",
         contact(
             name = "StellarRoute",
             url = "https://github.com/stellarroute/stellarroute"

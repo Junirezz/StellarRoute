@@ -1,12 +1,12 @@
 //! API server setup and configuration
 
-use axum::Router;
+use axum::{http::Request, Router};
 use sqlx::PgPool;
 use std::{net::SocketAddr, sync::Arc};
 use tower_http::{
     compression::CompressionLayer,
     cors::{Any, CorsLayer},
-    trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
+    trace::{DefaultOnResponse, TraceLayer},
 };
 use tracing::{info, warn, Level};
 use utoipa::OpenApi;
@@ -16,7 +16,9 @@ use crate::{
     cache::CacheManager,
     docs::ApiDoc,
     error::Result,
-    middleware::{EndpointConfig, RateLimitLayer},
+    middleware::{
+        request_id_layer, EndpointConfig, RateLimitLayer, RequestId, REQUEST_ID_HEADER,
+    },
     routes,
     state::{AppState, CachePolicy},
 };
@@ -149,12 +151,37 @@ impl Server {
         // Add rate limiting (innermost — runs before CORS/compression in the response path)
         app = app.layer(rate_limit);
 
-        // Add request logging — each request gets a unique span with method, URI, status, and latency
+        // Add request logging — each request gets a unique span with method, URI, status, and latency.
         app = app.layer(
             TraceLayer::new_for_http()
-                .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+                .make_span_with(|request: &Request<_>| {
+                    let request_id = request
+                        .extensions()
+                        .get::<RequestId>()
+                        .map(RequestId::as_str)
+                        .or_else(|| {
+                            request
+                                .headers()
+                                .get(REQUEST_ID_HEADER)
+                                .and_then(|value| value.to_str().ok())
+                        })
+                        .unwrap_or("missing");
+
+                    tracing::info_span!(
+                        "http.request",
+                        request_id = %request_id,
+                        http.method = %request.method(),
+                        http.target = %request.uri(),
+                        http.status_code = tracing::field::Empty,
+                        otel.kind = "server",
+                    )
+                })
                 .on_response(DefaultOnResponse::new().level(Level::INFO)),
         );
+
+        // Add request ID propagation as the outermost wrapper so downstream layers reuse the
+        // same correlation ID in logs, spans, and responses.
+        app = app.layer(axum::middleware::from_fn(request_id_layer));
 
         app
     }
