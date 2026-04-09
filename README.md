@@ -311,7 +311,7 @@ StellarRoute/
 │   ├── contracts/     # Soroban smart contracts
 │   └── sdk-rust/      # Rust SDK for developers
 ├── frontend/          # Web UI (React/Next.js) [planned]
-├── sdk-js/            # JavaScript/TypeScript SDK [planned]
+├── sdk-js/            # JavaScript/TypeScript SDK
 ├── docs/              # Documentation
 │   ├── architecture/  # Architecture documentation
 │   ├── api/          # API reference
@@ -386,6 +386,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Horizon API Reference**: https://developers.stellar.org/api/horizon
 - **Project Roadmap**: [Roadmap.md](Roadmap.md)
 - **Development Setup**: [docs/development/SETUP.md](docs/development/SETUP.md)
+- **TypeScript SDK Quickstart**: [sdk-js/README.md](sdk-js/README.md)
+- **TypeScript SDK API Docs**: [docs/sdk-js/api](docs/sdk-js/api)
 
 ---
 
