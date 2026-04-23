@@ -389,3 +389,6 @@ export function DemoSwap() {
     </Card>
   );
 }
+
+export default DemoSwap;
+

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import { TransactionRecord, TransactionStatus } from '@/types/transaction';
 
 const STORAGE_KEY = 'stellar_route_tx_history';
@@ -11,6 +12,7 @@ export function useTransactionHistory(walletAddress: string | null) {
       return stored ? JSON.parse(stored) : [];
     } catch (e) {
       console.error('Failed to parse transaction history', e);
+      toast.error('Failed to load transaction history from local storage');
       return [];
     }
   });
@@ -27,6 +29,7 @@ export function useTransactionHistory(walletAddress: string | null) {
       setTransactions(stored ? JSON.parse(stored) : []);
     } catch (e) {
       console.error('Failed to load transaction history', e);
+      toast.error('Failed to load transaction history');
       setTransactions([]);
     }
     // Note: This still has a setState, but standard for id change.
@@ -44,6 +47,9 @@ export function useTransactionHistory(walletAddress: string | null) {
       );
     } catch (e) {
       console.error('Failed to save transaction history to localStorage', e);
+      toast.error('Failed to save transaction history to local storage', {
+        description: 'Your local storage might be full.'
+      });
     }
   }, [transactions, walletAddress]);
 
