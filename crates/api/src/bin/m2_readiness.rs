@@ -239,13 +239,6 @@ async fn check_pathfinding_latency() -> CheckResult {
 async fn check_multi_hop_support() -> CheckResult {
     // Check if the routing policy allows multiple hops.
     let engine = stellarroute_routing::RoutingEngine::new();
-    let max_hops = engine.routing_policy().max_hops;
-
-    if max_hops >= 2 {
-        CheckResult {
-            name: "Multi-hop Support".to_string(),
-            status: "Pass".to_string(),
-            message: format!("Max hops configured to {}", max_hops),
     let policy = engine.routing_policy();
 
     if policy.max_hops >= 2 {
@@ -258,7 +251,6 @@ async fn check_multi_hop_support() -> CheckResult {
         CheckResult {
             name: "Multi-hop Support".to_string(),
             status: "Fail".to_string(),
-            message: format!("Max hops restricted to {}", max_hops),
             message: format!("Max hops restricted to {}", policy.max_hops),
         }
     }
