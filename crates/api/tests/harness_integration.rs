@@ -65,6 +65,7 @@ async fn test_harness_mixed_traffic_profile() {
                 let request = Request::builder().uri(uri).body(Body::empty()).unwrap();
 
                 let response = (*router)
+                let response = router
                     .clone()
                     .oneshot(request)
                     .await
@@ -135,6 +136,7 @@ async fn test_harness_degradation_scenario() {
                     .unwrap();
 
                 let response = (*router)
+                let response = router
                     .clone()
                     .oneshot(request)
                     .await

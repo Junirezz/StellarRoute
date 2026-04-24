@@ -255,14 +255,14 @@ impl LoadTestHarness {
                         if config.degradation.db_error_rate > 0.0
                             && rng.gen::<f64>() < config.degradation.db_error_rate
                         {
-                            should_fail = true;
+                            fail = true;
                         }
                         if config.degradation.rpc_error_rate > 0.0
                             && rng.gen::<f64>() < config.degradation.rpc_error_rate
                         {
-                            should_fail = true;
+                            fail = true;
                         }
-                        (traffic_type, amount, should_fail)
+                        fail
                     };
 
                     let result = if should_fail {
