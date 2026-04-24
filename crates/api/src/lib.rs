@@ -5,6 +5,7 @@
 pub mod cache;
 pub mod docs;
 pub mod error;
+pub mod exactlyonce;
 pub mod handlers;
 pub mod load_test;
 pub mod middleware;
@@ -23,6 +24,7 @@ pub mod graph;
 pub use cache::CacheManager;
 pub use docs::ApiDoc;
 pub use error::{ApiError, Result};
+pub use exactlyonce::{DedupeLedger, RequestIdentity, ExactlyOnceError};
 pub use server::{Server, ServerConfig};
 pub use state::AppState;
 pub use tracing_config::{TracingConfig, TraceContext};

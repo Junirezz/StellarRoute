@@ -1,7 +1,6 @@
 //! API server setup and configuration
 
 use axum::{http::Request, Router};
-use sqlx::PgPool;
 use std::{net::SocketAddr, sync::Arc};
 use tower_http::{
     compression::CompressionLayer,
