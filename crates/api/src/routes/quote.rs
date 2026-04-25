@@ -13,13 +13,12 @@
 use axum::{extract::State, Json};
 use sqlx::Row;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::time::timeout;
 use tracing::{debug, info_span, warn, Instrument};
 
 use stellarroute_routing::health::filter::GraphFilter;
 use stellarroute_routing::health::freshness::{FreshnessGuard, FreshnessOutcome};
-use stellarroute_routing::health::policy::{ExclusionPolicy, OverrideRegistry};
+use stellarroute_routing::health::policy::ExclusionPolicy;
 use stellarroute_routing::health::scorer::{
     AmmScorer, HealthScorer, HealthScoringConfig, SdexScorer, VenueScorerInput, VenueType,
 };
@@ -63,7 +62,7 @@ pub async fn get_quote(
     headers: axum::http::HeaderMap,
     request_id: RequestId,
     request: crate::middleware::validation::ValidatedQuoteRequest,
-) -> Result<Json<QuoteResponse>> {
+) -> Result<Json<crate::models::ApiResponse<QuoteResponse>>> {
     let ValidatedQuoteRequest {
         base: base_asset,
         quote: quote_asset,
@@ -114,7 +113,8 @@ pub async fn get_quote(
                     "Quote pipeline completed"
                 );
 
-                Ok(Json(quote))
+                let envelope = crate::models::ApiResponse::new(quote, request_id.to_string());
+                Ok(Json(envelope))
             }
             Err(e) => {
                 let error_class = match &e {
@@ -152,8 +152,9 @@ pub async fn get_quote(
 /// POST /api/v1/batch/quote
 pub async fn get_batch_quotes(
     State(state): State<Arc<AppState>>,
+    request_id: RequestId,
     Json(payload): Json<crate::models::request::BatchQuoteRequest>,
-) -> Result<Json<crate::models::response::BatchQuoteResponse>> {
+) -> Result<Json<crate::models::ApiResponse<crate::models::response::BatchQuoteResponse>>> {
     debug!("Getting {} batch quotes", payload.quotes.len());
 
     if payload.quotes.is_empty() {
@@ -188,10 +189,9 @@ pub async fn get_batch_quotes(
     }
 
     let total = quotes.len();
-    Ok(Json(crate::models::response::BatchQuoteResponse {
-        quotes,
-        total,
-    }))
+    let payload = crate::models::response::BatchQuoteResponse { quotes, total };
+    let envelope = crate::models::ApiResponse::new(payload, request_id.to_string());
+    Ok(Json(envelope))
 }
 
 async fn get_quote_inner(
@@ -396,8 +396,9 @@ async fn get_quote_inner(
 )]
 pub async fn get_route(
     State(state): State<Arc<AppState>>,
+    request_id: RequestId,
     request: crate::middleware::validation::ValidatedQuoteRequest,
-) -> Result<Json<crate::models::RouteResponse>> {
+) -> Result<Json<crate::models::ApiResponse<crate::models::RouteResponse>>> {
     let ValidatedQuoteRequest {
         base: base_asset,
         quote: quote_asset,
@@ -435,7 +436,8 @@ pub async fn get_route(
         timestamp: chrono::Utc::now().timestamp_millis(),
     };
 
-    Ok(Json(response))
+    let envelope = crate::models::ApiResponse::new(response, request_id.to_string());
+    Ok(Json(envelope))
 }
 
 /// Find best price for a trading pair
@@ -467,16 +469,27 @@ async fn find_best_price(
     quote_id: uuid::Uuid,
     amount: f64,
 ) -> Result<FindBestPriceResult> {
-    // Parallel multi-source quote computation
-    let sdex_timeout = Duration::from_millis(500);
-    let amm_timeout = Duration::from_millis(500);
+    // Parallel multi-source quote computation with adaptive timeouts
+    let health_score = state.calculate_health_score().await;
+    let dynamic_timeout = state.timeout_controller.calculate_timeout(health_score);
 
+    let start_fetch = std::time::Instant::now();
     let sdex_task = fetch_source_candidates(state, base_id, quote_id, "sdex");
     let amm_task = fetch_source_candidates(state, base_id, quote_id, "amm");
 
     let (sdex_res, amm_res) = tokio::join!(
-        timeout(sdex_timeout, sdex_task),
-        timeout(amm_timeout, amm_task)
+        timeout(dynamic_timeout, sdex_task),
+        timeout(dynamic_timeout, amm_task)
+    );
+
+    let fetch_latency = start_fetch.elapsed();
+    state.timeout_controller.record_latency(fetch_latency);
+
+    // Record metrics
+    crate::metrics::record_adaptive_timeout(
+        dynamic_timeout.as_millis() as u64,
+        state.timeout_controller.current_ema_ms(),
+        "realtime",
     );
 
     let mut candidates = Vec::new();
@@ -484,13 +497,13 @@ async fn find_best_price(
     match sdex_res {
         Ok(Ok(mut res)) => candidates.append(&mut res),
         Ok(Err(e)) => warn!("SDEX source error: {:?}", e),
-        Err(_) => warn!("SDEX source timed out"),
+        Err(_) => warn!("SDEX source timed out after {:?}", dynamic_timeout),
     }
 
     match amm_res {
         Ok(Ok(mut res)) => candidates.append(&mut res),
         Ok(Err(e)) => warn!("AMM source error: {:?}", e),
-        Err(_) => warn!("AMM source timed out"),
+        Err(_) => warn!("AMM source timed out after {:?}", dynamic_timeout),
     }
 
     // Deterministic merge: sort by price, then venue type, then ref
@@ -608,7 +621,9 @@ async fn find_best_price(
     let mut overrides = state.kill_switch.get_override_registry().await;
     // Merge static config overrides into dynamic ones
     for entry in health_config.overrides.clone() {
-        overrides.venue_entries.insert(entry.venue_ref, entry.directive);
+        overrides
+            .venue_entries
+            .insert(entry.venue_ref, entry.directive);
     }
 
     let policy = ExclusionPolicy {
@@ -648,6 +663,9 @@ async fn find_best_price(
                 stellarroute_routing::health::policy::ExclusionReason::CircuitBreakerOpen => {
                     ApiExclusionReason::CircuitBreakerOpen
                 }
+                stellarroute_routing::health::policy::ExclusionReason::LiquidityAnomaly {
+                    ..
+                } => ApiExclusionReason::LiquidityAnomaly,
             },
         })
         .collect();

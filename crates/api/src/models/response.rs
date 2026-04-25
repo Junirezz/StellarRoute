@@ -3,6 +3,30 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+/// Standard API response envelope
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ApiResponse<T> {
+    pub v: u8,
+    pub timestamp: i64,
+    pub request_id: String,
+    pub data: T,
+}
+
+impl<T> ApiResponse<T> {
+    pub fn new(data: T, request_id: impl Into<String>) -> Self {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+        Self {
+            v: 1,
+            timestamp,
+            request_id: request_id.into(),
+            data,
+        }
+    }
+}
+
 /// Per-component health status value
 pub type ComponentStatus = String;
 
@@ -340,6 +364,7 @@ pub enum ExclusionReason {
     Override,
     StaleData,
     CircuitBreakerOpen,
+    LiquidityAnomaly,
 }
 
 /// Machine-readable error codes for API failures
