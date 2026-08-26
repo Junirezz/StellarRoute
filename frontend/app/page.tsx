@@ -1,25 +1,27 @@
-import DemoSwap from "@/components/DemoSwap";
+import { HeroSection } from "@/components/HeroSection";
+import { JsonLd } from "@/components/seo/JsonLd";
+import { HomeFaqSection } from "@/components/seo/HomeFaqSection";
+import {
+  DEFAULT_DESCRIPTION,
+  DEFAULT_TITLE,
+  HOME_FAQS,
+  buildPageMetadata,
+  faqJsonLd,
+} from "@/lib/seo";
+
+export const metadata = buildPageMetadata({
+  title: DEFAULT_TITLE,
+  description: DEFAULT_DESCRIPTION,
+  path: "/",
+  absoluteTitle: true,
+});
 
 export default function Home() {
   return (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-center">StellarRoute</h1>
-      <p className="text-muted-foreground mt-2 text-center mb-12">
-        DEX Aggregator - Frontend Ready
-      </p>
-
-      <DemoSwap />
-
-      <div className="mt-12 text-center">
-        <a 
-          href="/quote-inspector" 
-          className="text-primary hover:underline font-medium flex items-center justify-center gap-2"
-        >
-          View Cross-Venue Quote Inspector Demo
-          <span className="text-xs bg-primary/10 px-2 py-0.5 rounded-full">New</span>
-        </a>
-      </div>
-    </div>
+    <>
+      <JsonLd data={faqJsonLd(HOME_FAQS)} />
+      <HeroSection />
+      <HomeFaqSection />
+    </>
   );
 }
-
