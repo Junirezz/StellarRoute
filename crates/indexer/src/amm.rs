@@ -449,85 +449,6 @@ impl AmmAggregator {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::models::{PoolReserve, PoolState};
-    use chrono::Utc;
-    use rust_decimal::Decimal;
-    use uuid::Uuid;
-
-    fn mock_pool_state() -> PoolState {
-        PoolState {
-            address: "CAMMPOOL1XLMUSDC000000000000000000000000000000000000000001".to_string(),
-            token_a: "CDUMMYTOKENA".to_string(),
-            token_b: "CDUMMYTOKENB".to_string(),
-            reserve_a: 1_000_000_000,
-            reserve_b: 2_000_000_000,
-            fee_bps: 30,
-            ledger_sequence: 12345,
-        }
-    }
-
-    fn mock_pool_reserve() -> PoolReserve {
-        PoolReserve {
-            pool_address: "CAMMPOOL1XLMUSDC000000000000000000000000000000000000000001".to_string(),
-            selling_asset_id: Uuid::new_v4(),
-            buying_asset_id: Uuid::new_v4(),
-            reserve_selling: Decimal::new(1_000_000_000, 7),
-            reserve_buying: Decimal::new(2_000_000_000, 7),
-            fee_bps: 30,
-            last_updated_ledger: 12345,
-            updated_at: Utc::now(),
-        }
-    }
-
-    #[test]
-    fn test_pool_state_creation() {
-        let state = mock_pool_state();
-        assert_eq!(state.reserve_a, 1_000_000_000);
-        assert_eq!(state.reserve_b, 2_000_000_000);
-        assert_eq!(state.fee_bps, 30);
-    }
-
-    #[test]
-    fn test_pool_reserve_creation() {
-        let reserve = mock_pool_reserve();
-        assert_eq!(reserve.fee_bps, 30);
-        assert_eq!(reserve.last_updated_ledger, 12345);
-    }
-
-    #[test]
-    fn test_pool_reserve_upsert_shape() {
-        let reserve = mock_pool_reserve();
-        assert!(!reserve.pool_address.is_empty());
-        assert!(!reserve.selling_asset_id.is_nil());
-        assert!(!reserve.buying_asset_id.is_nil());
-        assert!(reserve.reserve_selling > Decimal::ZERO);
-        assert!(reserve.reserve_buying > Decimal::ZERO);
-    }
-
-    #[test]
-    fn test_malformed_event_handling() {
-        let malformed_json = r#"{"invalid": "structure"}"#;
-        let parsed: Result<serde_json::Value, _> = serde_json::from_str(malformed_json);
-        assert!(parsed.is_ok());
-        let value = parsed.unwrap();
-        assert!(value.get("pool_address").is_none());
-    }
-
-    #[test]
-    fn test_empty_event_handling() {
-        let empty_json = r#"{}"#;
-        let parsed: Result<serde_json::Value, _> = serde_json::from_str(empty_json);
-        assert!(parsed.is_ok());
-    }
-
-    #[test]
-    fn test_pool_state_fee_bps_bounds() {
-        let state = mock_pool_state();
-        assert!(state.fee_bps >= 0);
-        assert!(state.fee_bps <= 10000);
 /// Helper to extract standard signed/unsigned integer values from ScVal
 fn parse_scval_integer(val: &ScVal) -> Option<i128> {
     match val {
@@ -799,5 +720,70 @@ mod tests {
         assert!(res.is_err());
         let err_str = format!("{}", res.unwrap_err());
         assert!(err_str.contains("failed to parse XDR"));
+    }
+
+    fn mock_pool_state() -> PoolState {
+        PoolState {
+            address: "CAMMPOOL1XLMUSDC000000000000000000000000000000000000000001".to_string(),
+            token_a: "CDUMMYTOKENA".to_string(),
+            token_b: "CDUMMYTOKENB".to_string(),
+            reserve_a: 1_000_000_000,
+            reserve_b: 2_000_000_000,
+            fee_bps: 30,
+            ledger_sequence: 12345,
+        }
+    }
+
+    fn mock_pool_reserve() -> PoolReserve {
+        PoolReserve {
+            pool_address: "CAMMPOOL1XLMUSDC000000000000000000000000000000000000000001"
+                .to_string(),
+            selling_asset_id: uuid::Uuid::new_v4(),
+            buying_asset_id: uuid::Uuid::new_v4(),
+            reserve_selling: rust_decimal::Decimal::new(1_000_000_000, 7),
+            reserve_buying: rust_decimal::Decimal::new(2_000_000_000, 7),
+            fee_bps: 30,
+            last_updated_ledger: 12345,
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn test_pool_state_creation() {
+        let state = mock_pool_state();
+        assert_eq!(state.reserve_a, 1_000_000_000);
+        assert_eq!(state.reserve_b, 2_000_000_000);
+        assert_eq!(state.fee_bps, 30);
+        assert_eq!(state.ledger_sequence, 12345);
+    }
+
+    #[test]
+    fn test_pool_reserve_creation_and_upsert_shape() {
+        let reserve = mock_pool_reserve();
+        assert_eq!(reserve.fee_bps, 30);
+        assert_eq!(reserve.last_updated_ledger, 12345);
+        assert!(!reserve.pool_address.is_empty());
+        assert!(!reserve.selling_asset_id.is_nil());
+        assert!(!reserve.buying_asset_id.is_nil());
+        assert!(reserve.reserve_selling > rust_decimal::Decimal::ZERO);
+        assert!(reserve.reserve_buying > rust_decimal::Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_malformed_and_empty_event_handling() {
+        let malformed_json = r#"{"invalid": "structure"}"#;
+        let parsed: serde_json::Value = serde_json::from_str(malformed_json).unwrap();
+        assert!(parsed.get("pool_address").is_none());
+        assert!(parse_soroban_pool_state(&parsed, "CPOOLADDR").is_err());
+
+        let empty: serde_json::Value = serde_json::from_str("{}").unwrap();
+        assert!(parse_soroban_pool_state(&empty, "CPOOLADDR").is_err());
+    }
+
+    #[test]
+    fn test_pool_state_fee_bps_bounds() {
+        let state = mock_pool_state();
+        assert!(state.fee_bps >= 0);
+        assert!(state.fee_bps <= 10_000);
     }
 }
